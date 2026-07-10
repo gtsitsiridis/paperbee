@@ -91,6 +91,7 @@ class LLMFilter:
                     {"role": "system", "content": filtering_prompt},
                     {"role": "user", "content": message},
                 ],
+                temperature=0,  # deterministic yes/no filtering
             )
             # OpenAI returns an object with 'choices', Ollama does not
             content = response.choices[0].message.content  # type: ignore[attr-defined]
