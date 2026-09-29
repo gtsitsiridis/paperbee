@@ -1,5 +1,6 @@
 import json
 import os
+import re
 from datetime import date, timedelta
 from logging import Logger
 from typing import Any, Dict, List, Optional, Tuple
@@ -9,6 +10,7 @@ import pandas as pd
 from slack_sdk import WebClient
 from tqdm import tqdm
 
+from . import findpapers_patches  # noqa: F401  (patches findpapers' arXiv parsing on import)
 from .cli import InteractiveCLIFilter
 from .google_sheet import GoogleSheetsUpdater
 from .llm_filtering import LLMFilter
@@ -200,6 +202,16 @@ class PapersFinder:
                     (s for s in article["urls"] if s.startswith("https://doi.org")),
                     None,
                 )
+                if article["url"] is None and "arXiv" in article["databases"]:
+                    # arXiv preprints rarely carry a doi.org link, but every one has a DataCite DOI
+                    article["url"] = next(
+                        (
+                            "https://doi.org/10.48550/arXiv." + re.sub(r"v\d+$", "", s.split("/abs/")[1])
+                            for s in article["urls"]
+                            if "arxiv.org/abs/" in s
+                        ),
+                        None,
+                    )
         articles = [article for article in articles if article.get("url") is not None]
         processor = ArticlesProcessor(articles, self.today_str)
         processed_articles = processor.articles
