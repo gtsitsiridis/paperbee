@@ -11,6 +11,7 @@ from slack_sdk import WebClient
 from tqdm import tqdm
 
 from . import findpapers_patches  # noqa: F401  (patches findpapers' arXiv parsing on import)
+from .biorxiv_client import search_biorxiv
 from .cli import InteractiveCLIFilter
 from .google_sheet import GoogleSheetsUpdater
 from .llm_filtering import LLMFilter
@@ -144,53 +145,28 @@ class PapersFinder:
 
         articles: List[Dict[str, Any]] = []
 
-        if self.query:
-            findpapers.search(
-                self.search_file,
-                self.query,
-                self.since,
-                self.until,
-                self.limit,
-                self.limit_per_database,
-                self.databases,
-                verbose=False,
-            )
-            with open(self.search_file) as papers_file:
-                articles_dict: List[Dict[str, Any]] = json.load(papers_file)["papers"]
-            articles = list(articles_dict)
-        else:
-            if not self.query_biorxiv or not self.query_pub_arx:
-                e = "Both query_biorxiv and query_pubmed_arxiv must be provided if query is not provided."
-                raise ValueError(e)
+        if not self.query and (not self.query_biorxiv or not self.query_pub_arx):
+            e = "Both query_biorxiv and query_pubmed_arxiv must be provided if query is not provided."
+            raise ValueError(e)
+        query_pub_arx = self.query or self.query_pub_arx
+        query_biorxiv = self.query or self.query_biorxiv
+        search_file = self.search_file if self.query else self.search_file_pub_arx
 
-            findpapers.search(
-                self.search_file_pub_arx,
-                self.query_pub_arx,
-                self.since,
-                self.until,
-                self.limit,
-                self.limit_per_database,
-                [
-                    database for database in self.databases if database != "biorxiv"
-                ],  # Biorxiv requires a different query
-                verbose=False,
-            )
-            if "biorxiv" in self.databases:
-                findpapers.search(
-                    self.search_file_biorxiv,
-                    self.query_biorxiv,
-                    self.since,
-                    self.until,
-                    self.limit,
-                    self.limit_per_database,
-                    ["biorxiv"],
-                    verbose=False,
-                )
-            with open(self.search_file_pub_arx) as papers_file:
-                articles_pub_arx_dict: List[Dict[str, Any]] = json.load(papers_file)["papers"]
-            with open(self.search_file_biorxiv) as papers_file:
-                articles_biorxiv_dict: List[Dict[str, Any]] = json.load(papers_file)["papers"]
-            articles = articles_pub_arx_dict + articles_biorxiv_dict
+        # bioRxiv's search page blocks scripts, so findpapers only covers the other databases
+        findpapers.search(
+            search_file,
+            query_pub_arx,
+            self.since,
+            self.until,
+            self.limit,
+            self.limit_per_database,
+            [database for database in self.databases if database != "biorxiv"],
+            verbose=False,
+        )
+        with open(search_file) as papers_file:
+            articles = json.load(papers_file)["papers"]
+        if "biorxiv" in self.databases:
+            articles += search_biorxiv(str(query_biorxiv), self.since, self.until)
 
         doi_extractor = PubMedClient()
         for article in tqdm(articles):
